@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connected Move · Put Roots</title>
+  <link rel="stylesheet" href="/move-rules-card.css">
+  <link rel="stylesheet" href="/demo.css">
+</head>
+<body>
+  <header><strong>Put Roots</strong><span>Connected Move</span><button id="reset" class="ghost" type="button">Reset sample</button></header>
+  <main>
+    <section aria-labelledby="ask-title">
+      <h1 id="ask-title">Can I move as planned?</h1>
+      <p>Sample move in San Francisco</p>
+      <form id="ask">
+        <label for="question">Ask about the move</label>
+        <textarea id="question" required>Everything is booked. Can I actually move in?</textarea>
+        <button type="submit" class="primary">Ask agent</button>
+      </form>
+      <p id="answer" aria-live="polite"></p>
+      <details>
+        <summary>Add a property reply</summary>
+        <form id="source">
+          <label for="reply">Reply text</label>
+          <textarea id="reply" required></textarea>
+          <button id="sample-reply" class="ghost" type="button">Load sample reply</button>
+          <button type="submit" class="primary">Review update</button>
+          <p id="proposal"></p>
+          <button id="confirm" type="button" class="secondary" hidden>Confirm update</button>
+        </form>
+      </details>
+    </section>
+    <section aria-labelledby="results-title">
+      <h2 id="results-title">Move check</h2>
+      <p id="booking"></p>
+      <div class="actions">
+        <button id="current" type="button" class="secondary">Current booking</button>
+        <button id="monday" type="button" class="secondary">What about Monday?</button>
+        <button id="compare" type="button" class="secondary">Compare Friday options</button>
+      </div>
+      <figure id="graph-view">
+        <div id="graph"></div>
+        <figcaption id="graph-caption"></figcaption>
+      </figure>
+      <p id="notice" role="status"></p>
+      <div id="results" aria-live="polite"></div>
+    </section>
+  </main>
+  <script type="module" src="/demo.mjs"></script>
+</body>
+</html>

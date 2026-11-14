@@ -1,0 +1,16 @@
+{
+  "name": "connected-move",
+  "version": "0.1.0",
+  "description": "Put Roots Connected Move: checks a moving plan against its documents with a Relate graph.",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test move-graph.test.mjs",
+    "seed": "node make-seed.mjs"
+  },
+  "dependencies": {
+    "@relate/relate": "1.0.1"
+  }
+}
