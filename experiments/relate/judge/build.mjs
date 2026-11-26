@@ -29,6 +29,7 @@ const html = shell.replace(/<script[^>]+src="https:\/\/www\.useinflect\.ai[^>]+>
   .replace(/<img src="https:\/\/www\.useinflect\.ai[^>]+>/g, '')
   .replace(/<script>\(function\(\)\{var g=document.createElement\("script"\);\s*g.src="https:\/\/accounts.google.com[^<]+<\/script>/, '')
   .replace(/var GCLIENT = "[^"]*";/, 'var GCLIENT = "";')
+  .replace('</head>', '<style>#rail-list .mvnote:has(>div){display:block;overflow:visible}</style></head>')
   .replace('<head>', '<head><script src="/workspace.js"></script>');
 await writeFile(output+'/index.html',html);
 await copyFile('judge/workspace.js',output+'/workspace.js');
