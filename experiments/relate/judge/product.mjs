@@ -11,14 +11,18 @@ export async function review(text) {
 export async function confirm(reviewed) {
   const result = await post('source/commit', { reviewed, explain: true });
   if (!result.after) throw new Error(result.detail || 'Please review the reply again.');
-  const conflicts = result.after.checks.filter(check => check.status === 'conflict');
+  const conflicts = result.after.checks.filter(check => check.status === 'conflict' && check.id.startsWith('cutoff-'));
   const elevator = result.after.checks.find(check => check.id === 'elevator');
-  const summary = [reviewed.statement, ...conflicts.map(check => check.detail || check.label)];
-  if (elevator) summary.push(elevator.label + " · " + elevator.status);
+  const slot = result.cloud?.facts?.booking;
+  const decision = result.cloud?.facts?.rule?.type === 'freight_elevator'
+    ? 'Freight elevator · ' + result.cloud.facts.rule.reservation + ' · ' + slot.unloadingStarts + '–' + slot.unloadingEnds
+    : reviewed.statement;
+  const summary = [decision, ...conflicts.map(check => check.detail || check.label)];
+  if (elevator && result.cloud?.facts?.rule?.type !== 'freight_elevator') summary.push(elevator.label + " · " + elevator.status);
   if (result.cloud) {
     summary.push("Fields for Gemini · " + JSON.stringify(result.cloud.facts));
     try {
-      summary.push(await explainWithGemini(result.cloud.facts));
+      summary.push('Gemini · ' + await explainWithGemini(result.cloud.facts));
     } catch (error) {
       summary.push('Saved locally. Gemini explanation unavailable. ' + error.message);
     }

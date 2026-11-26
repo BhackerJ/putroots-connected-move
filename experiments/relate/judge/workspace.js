@@ -2,7 +2,7 @@
 window.PUTROOTS_HYBRID = true;
 const home = { id:'sample-home', kind:'home', name:'New apartment · Mission Bay', lat:37.7706, lng:-122.3925,
   tasks:[{task:'new_building_rules', title:'Check the building’s move-in rules', kind:'email', state:'ready',
-    rules_reply:'new_building', due:-7, note:'Saturday, December 5 · Unloading booked 11:30–13:30.'}] };
+    rules_reply:'new_building', due:-7, dlabel:'Nov 28', need_line:'Review the property reply against the current booking.', note:'Saturday, December 5 · Unloading booked 11:30–13:30.'}] };
 const nativeFetch = window.fetch.bind(window);
 window.fetch = function(input, options) {
   const url = new URL(input instanceof Request ? input.url : input, location.href);

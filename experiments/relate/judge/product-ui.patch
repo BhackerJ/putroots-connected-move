@@ -33,3 +33,12 @@
 +    }
      var _co={};_rs2.rows.forEach(function(x){_co[x.key]=x.value;});
      // 存之前记下单子里已有哪些件:存下 + 打勾之后多出来的,就是这次解锁的(预约货梯这类 when 挂在楼规上的)
+--- a/src/map-agent.ts
++++ b/src/map-agent.ts
+@@ -3017,5 +3017,5 @@
+   // 切片 2:一件事都渲染不出来时不许是白板 —— 走七种空态(mvEmptyHtml)
+   var _rows=rows||mvEmptyHtml(p,D);
+-  return '<div class="mvcard" data-pin="'+esc(p.id)+'">'+head+(note?'<div class="mvnote">'+esc(note)+'</div>':'')+_rows+rcpt+'</div>';
++  return '<div class="mvcard" data-pin="'+esc(p.id)+'">'+head+(note?'<div class="mvnote">'+(window.PUTROOTS_HYBRID?String(note).split('\\n').map(function(line){return '<div style="margin:4px 0;overflow-wrap:anywhere;color:'+(line.indexOf('90 minutes late')>=0||line.indexOf('· cancelled')>=0?'#943520':line.indexOf('· confirmed')>=0?'#246339':'inherit')+'">'+esc(line)+'</div>';}).join(''):esc(note))+'</div>':'')+_rows+rcpt+'</div>';
+ }
+ var MV_ALL={};   // 哪张卡点开了「+N more」
