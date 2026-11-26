@@ -1,0 +1,35 @@
+--- a/src/map-agent.ts
++++ b/src/map-agent.ts
+@@ -2913,5 +2913,6 @@
+       else{form=mvRulesHtml(t,EN);
+         line=_rr.rows.length?(EN?("I read "+_rr.rows.length+" of the building's rules out of that — check them against what they wrote, then I'll save them."):("从这段里读出 "+_rr.rows.length+" 条 —— 对着原文核一眼,没错我就存。")):"";
+-        act=_rr.rows.length?'<button type="button" class="secbtn" data-mv="rulessave" data-id="'+esc(t.task)+'">'+(EN?("Save these "+_rr.rows.length):("存下这 "+_rr.rows.length+" 条"))+'</button>'
++        if(window.PUTROOTS_HYBRID&&_rr.rows.length)line=EN?"Check the rule against the original wording. Gemini will receive the confirmed rule and booking times.":"请核对规则和对应原文。确认后，Gemini 会收到规则和预约时间。";
++        act=_rr.rows.length?'<button type="button" class="secbtn" data-mv="rulessave" data-id="'+esc(t.task)+'">'+(window.PUTROOTS_HYBRID?(EN?"Confirm and explain with Gemini":"确认并用 Gemini 解释"):(EN?("Save these "+_rr.rows.length):("存下这 "+_rr.rows.length+" 条")))+'</button>'
+                            :'<button type="button" class="secbtn mvghost" data-mv="rules" data-id="'+esc(t.task)+'">'+(EN?"Paste again":"重贴一次")+'</button>';}}
+     // 号码:pin 上的(候选门店)> 服务端随任务下发的 t.phone(目录里这家的客服电话,qa2-newcomer F)> 没有 → 「填号码 / 帮我查」
+@@ -3307,4 +3308,12 @@
+   else if(act==="rulesgo"){var _ta=card.querySelector('.mvrules[data-t="'+id+'"] textarea'),_tx=_ta?String(_ta.value||"").trim():"";
+     if(!_tx){btn.disabled=false;delete MV_INFLIGHT[mvKey];if(_ta)_ta.focus();return;}
++    if(window.PUTROOTS_HYBRID){
++      var reading=MV_RULES[id];
++      import("/connected-move-product.mjs").then(function(h){return h.review(_tx);}).then(function(rule){
++        if(MV_RULES[id]!==reading||reading.text!==_tx)return;
++        MV_RULES[id]={reviewed:rule,rows:rule?[{label:EN?"Rule":"楼规",value:rule.statement,src:rule.quote}]:[]};
++      }).catch(function(err){say2(String(err.message||err));}).finally(function(){mvFree();btn.disabled=false;if(inRail)showResults();else loadMoveLayer(mvAfter);});
++      return;
++    }
+     post("/move/rules-reply",{id:id,text:_tx}).then(function(r){
+       if(!r||r.error){MV_RULES[id]={field:(task&&task.rules_reply),text:_tx};say2((r&&r.error)||"?");if(inRail){MV_NOTE="";showResults();}return;}
+@@ -3313,4 +3322,11 @@
+   else if(act==="rulessave"){var _rs2=MV_RULES[id];
+     if(!_rs2||!_rs2.rows||!_rs2.rows.length){delete MV_INFLIGHT[mvKey];btn.disabled=false;return;}
++    if(window.PUTROOTS_HYBRID){
++      if(!_rs2.reviewed){mvFree();btn.disabled=false;return;}
++      import("/connected-move-product.mjs").then(function(h){return h.confirm(_rs2.reviewed);}).then(function(message){
++        delete MV_RULES[id];say2(message);
++      }).catch(function(err){say2(String(err.message||err));}).finally(function(){mvFree();btn.disabled=false;if(inRail)showResults();else loadMoveLayer(mvAfter);});
++      return;
++    }
+     var _co={};_rs2.rows.forEach(function(x){_co[x.key]=x.value;});
+     // 存之前记下单子里已有哪些件:存下 + 打勾之后多出来的,就是这次解锁的(预约货梯这类 when 挂在楼规上的)

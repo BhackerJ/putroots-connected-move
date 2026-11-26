@@ -13,10 +13,14 @@
     "build:judge": "node judge/build.mjs"
   },
   "dependencies": {
+    "@maplibre/maplibre-gl-leaflet": "0.0.22",
     "@noble/hashes": "1.8.0",
     "@relate/relate": "1.0.1",
     "@relate/relate-wasm": "1.0.1",
     "esbuild": "0.28.2",
-    "firebase": "13.4.0"
+    "firebase": "13.4.0",
+    "leaflet": "1.9.4",
+    "leaflet.markercluster": "1.5.3",
+    "maplibre-gl": "4.7.1"
   }
 }
