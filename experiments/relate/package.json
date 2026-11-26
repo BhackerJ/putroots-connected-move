@@ -8,9 +8,15 @@
   "scripts": {
     "start": "node server.mjs",
     "test": "node --test move-graph.test.mjs",
-    "seed": "node make-seed.mjs"
+    "seed": "node make-seed.mjs",
+    "prestart": "esbuild local-mail.mjs --bundle --format=esm --outfile=node_modules/.cache/connected-move/local-mail.js",
+    "build:judge": "node judge/build.mjs"
   },
   "dependencies": {
-    "@relate/relate": "1.0.1"
+    "@noble/hashes": "1.8.0",
+    "@relate/relate": "1.0.1",
+    "@relate/relate-wasm": "1.0.1",
+    "esbuild": "0.28.2",
+    "firebase": "13.4.0"
   }
 }

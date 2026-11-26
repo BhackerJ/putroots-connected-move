@@ -1,0 +1,8 @@
+{
+  "hosting": {
+    "public": "node_modules/.cache/judge",
+    "headers": [
+      {"source":"**","headers":[{"key":"Cache-Control","value":"no-cache"}]}
+    ]
+  }
+}

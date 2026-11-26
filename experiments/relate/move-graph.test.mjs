@@ -143,3 +143,33 @@ test('withdrawing an exception restores the conflict, and an elevator applicatio
   assert.equal(check(apply('Management confirmed the freight elevator reservation for the Saturday booking for this move.'),'elevator').status,'satisfied');
   assert.equal(check(apply('Management cancelled the freight elevator reservation for the Saturday booking for this move.'),'elevator').status,'pending');
 });
+
+test('reviewed deadline keeps its source, weekday and version across retries', () => {
+  const graph = createMoveGraph();
+  const reviewed = { baseVersion:graph.findConflicts().caseVersion,
+    statement:'Unloading must finish by 14:00 every Friday.', quote:'On Fridays, finish unloading by two in the afternoon.' };
+  const saved = graph.applySource({ reviewed });
+  const id = saved.changes.find(item => item.label.includes('deadline · Fri')).id;
+  assert.equal(check(saved.after,id).status,'satisfied'); // Saturday
+  assert.equal(check(graph.findConflicts(option('friday-a')),id).status,'satisfied'); // finishes at 14:00
+  const late = check(graph.findConflicts(option('friday-b')),id);
+  assert.equal(late.status,'conflict');
+  assert.ok(late.evidence.some(item => item.quote === reviewed.quote));
+  assert.equal(graph.applySource({ reviewed }).caseVersion,saved.caseVersion);
+  assert.throws(() => graph.applySource({ reviewed:{ ...reviewed,quote:'A different reply.' } }),/Review the email again/);
+  assert.equal(graph.findConflicts().caseVersion,saved.caseVersion);
+});
+
+test('cloud explanation projects only the facts used for the reviewed decision', async () => {
+  const { explanationFacts } = await import('./cloud-explanation.mjs');
+  const graph = createMoveGraph();
+  const report = graph.findConflicts();
+  assert.deepEqual(explanationFacts('Unloading must finish by 12:00 every Saturday.', report), {
+    rule:{type:'unloading_deadline',weekday:'Saturday',finishBy:'12:00'},
+    booking:{weekday:'Saturday',unloadingEnds:'13:30'},
+  });
+  assert.deepEqual(explanationFacts('Management cancelled the freight elevator reservation for the Saturday booking for this move.',report), {
+    rule:{type:'freight_elevator',reservation:'cancelled'},
+    booking:{date:'2026-12-05',unloadingStarts:'11:30',unloadingEnds:'13:30'},
+  });
+});

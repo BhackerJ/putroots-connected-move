@@ -1,67 +1,7 @@
-import { Database } from '@relate/relate';
-import { createHash } from 'node:crypto';
+import { openStore, digest } from './graph-store.mjs';
 import { BOOKINGS, REQUIREMENTS, SAMPLE_NOW, SOURCES } from './move-fixtures.mjs';
 
-const TZ = 'America/Los_Angeles';
-const localTime = new Intl.DateTimeFormat('sv-SE', {
-  timeZone: TZ, dateStyle: 'short', timeStyle: 'short',
-});
-
-function timestamp(date, time) {
-  if (!date || !time) return undefined;
-  const utc = Date.parse(date + 'T' + time + ':00Z');
-  if (!Number.isFinite(utc)) return undefined;
-  // Compute the zone offset from the intended local wall clock. Verify the
-  // result so a nonexistent wall-clock time never becomes a valid schedule.
-  const wall = instant => Date.parse(localTime.format(instant).replace(' ', 'T') + ':00Z');
-  const result = utc + utc - wall(utc);
-  return wall(result) === utc ? result : undefined;
-}
-
-function isDate(value) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value ?? '') &&
-    Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0,10) === value;
-}
-
-function readException(text) {
-  const match = /^For this move only, you may unload at the new building on (?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), ([A-Za-z]+) (\d{1,2}), (\d{4}) from (\d{1,2}):(\d{2}) (AM|PM) to (\d{1,2}):(\d{2}) (AM|PM)\.(?: All other requirements, including the freight elevator reservation, still apply\.)?$/i.exec(text);
-  if (!match) return undefined;
-  const [, month, day, year, startHour, startMinute, startPeriod, endHour, endMinute, endPeriod] = match;
-  const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  const monthIndex = months.findIndex(value => value.toLowerCase() === month.toLowerCase()) + 1;
-  const date = [year,String(monthIndex).padStart(2,'0'),day.padStart(2,'0')].join('-');
-  const clock = (hour, minute, period) => {
-    if (Number(hour) < 1 || Number(hour) > 12 || Number(minute) > 59) return undefined;
-    return String(Number(hour) % 12 + (period.toUpperCase() === 'PM' ? 12 : 0)).padStart(2,'0') + ':' + minute;
-  };
-  const start = clock(startHour,startMinute,startPeriod);
-  const end = clock(endHour,endMinute,endPeriod);
-  if (!isDate(date) || !start || !end || start >= end || !timestamp(date,start) || !timestamp(date,end)) return undefined;
-  const weekday = new Intl.DateTimeFormat('en', { timeZone:'UTC', weekday:'long' }).format(new Date(date));
-  if (!text.toLowerCase().includes(' on ' + weekday.toLowerCase() + ',')) return undefined;
-  return { date,start,end,quote:text };
-}
-
-function readUpdate(text) {
-  const exception = readException(text);
-  if (exception) return { kind:'exception', active:true, ...exception };
-  if (text.startsWith('Management withdraws the following permission: ')) {
-    const withdrawn = readException(text.slice('Management withdraws the following permission: '.length));
-    if (withdrawn) return { kind:'exception', ...withdrawn, active:false, quote:text };
-  }
-  const approval = /^Management (accepted|revoked approval of) Mover ([AB])['’]s COI for this move\.$/i.exec(text);
-  if (approval) return { kind:'approval', providerId:approval[2].toUpperCase(), accepted:approval[1].toLowerCase() === 'accepted', quote:text };
-  const elevator = /^Management (received|confirmed|cancelled) the freight elevator (?:application|reservation) for the (Saturday|Friday [AB]) booking for this move\.$/i.exec(text);
-  if (elevator) return {
-    kind:'elevator', state:elevator[1].toLowerCase(),
-    bookingId:elevator[2].toLowerCase() === 'saturday' ? 'current' : elevator[2].toLowerCase().replace(' ','-'),
-    quote:text,
-  };
-  const booking = /^Mover ([AB]) confirms the quoted Friday, December 4, 2026 option for this move\.$/i.exec(text);
-  if (booking) return { kind:'booking', bookingId:'friday-' + booking[1].toLowerCase(), quote:text };
-  if (/^Mover A confirms cancellation of the original Saturday, December 5, 2026 booking for this move\.$/i.test(text)) return { kind:'cancel',quote:text };
-  return undefined;
-}
+import { TZ, localTime, timestamp, isDate, readUpdate } from './source-rules.mjs';
 
 // Each requirement is judged inside Relate. The query returns one verdict code
 // per requirement; JavaScript only words the verdict and does the time-zone
@@ -77,6 +17,10 @@ const VERDICTS = `MATCH (:Move {id:"sample"})-[:HAS_TASK]->(:Task)<-[:ANCHORED_T
   OPTIONAL MATCH (r)-[:SUPPORTED_BY]->(w:Source {id:"S12"})
   WITH r, exceptions, approval, count(w) > 0 AS attendanceStated, date($date).dayOfWeek >= 6 AS weekend
   RETURN r.id AS id, CASE
+    WHEN r.kind = 'cutoff' THEN CASE
+      WHEN date($date).dayOfWeek <> r.day THEN 'other_day'
+      WHEN $unloadEnd IS NULL THEN 'unknown'
+      WHEN $unloadEnd > r.end THEN 'late' ELSE 'ok' END
     WHEN r.kind = 'access' THEN CASE
       WHEN $date < r.date THEN 'conflict'
       WHEN $date > r.date OR ($unloadStart IS NOT NULL AND $unloadStart >= r.start) THEN 'ok'
@@ -119,8 +63,7 @@ const PATHS = `MATCH p=(:Move {id:"sample"})-[:HAS_TASK]->(:Task)<-[:ANCHORED_TO
   ORDER BY hops DESC`;
 
 export function createMoveGraph(path = ':memory:', { extended = true } = {}) {
-  const db = Database.open(path);
-  const connection = db.connect();
+  const connection = openStore(path);
   const query = (statement, parameters) => connection.query(statement, parameters).rows;
   const one = (statement, parameters) => query(statement, parameters)[0];
   const pending = new Map();
@@ -264,9 +207,19 @@ export function createMoveGraph(path = ':memory:', { extended = true } = {}) {
   }
 
   function applySource(input) {
+    if (input.reviewed) {
+      const { statement, quote, baseVersion } = input.reviewed;
+      if (typeof statement !== 'string' || typeof quote !== 'string' || !quote.trim() || !readUpdate(statement)) throw new Error('Invalid reviewed restriction.');
+      const candidateId = digest(JSON.stringify([statement,quote]));
+      if (!one('MATCH (s:Source {id:$id}) RETURN s.id AS id', { id:candidateId })) {
+        if (baseVersion !== version()) throw new Error('Move changed. Review the email again.');
+        pending.set(candidateId, { ...readUpdate(statement), candidateId, baseVersion, text:quote, quote });
+      }
+      return applySource({ candidateId });
+    }
     if (input.text !== undefined) {
       const text = input.text.trim();
-      const candidateId = createHash('sha256').update(text).digest('hex');
+      const candidateId = digest(text);
       const existing = one('MATCH (s:Source {id:$id}) RETURN s.id AS id', { id:candidateId });
       if (existing) return { status:'committed', candidateId, caseVersion:version() };
       const update = readUpdate(text);
@@ -283,7 +236,12 @@ export function createMoveGraph(path = ':memory:', { extended = true } = {}) {
     const before = findConflicts();
     transact(() => {
       const { kind } = candidate;
-      if (kind === 'booking') {
+      if (kind === 'cutoff') {
+        query(`MATCH (t:Task {id:"move"})
+          CREATE (r:Requirement {id:$ruleId,label:$label,kind:"cutoff",day:$day,end:$end})-[:ANCHORED_TO]->(t)
+          CREATE (r)-[:SUPPORTED_BY]->(:Source {id:$sourceId,quote:$quote})`,
+          { ...candidate, ruleId:"cutoff-" + candidate.candidateId, sourceId:candidate.candidateId, label:'Unloading deadline · ' + ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][candidate.day-1] + ' ' + candidate.end });
+      } else if (kind === 'booking') {
         const { bookingId } = candidate;
         const booking = one('MATCH (b:Booking {id:$bookingId}) RETURN properties(b) AS booking', { bookingId })?.booking;
         if (!booking || booking.status !== 'option') throw new Error('Booking option is no longer available');
@@ -338,7 +296,7 @@ export function createMoveGraph(path = ':memory:', { extended = true } = {}) {
     };
   }
 
-  return { findConflicts, compareOptions, explain, applySource, reset, graphView, checkpoint() { db.checkpoint(); } };
+  return { findConflicts, compareOptions, explain, applySource, reset, graphView, checkpoint() { connection.checkpoint(); } };
 }
 
 function assess(rule, verdict, booking, now, prerequisites, accepted, elevatorState) {
@@ -353,6 +311,15 @@ function assess(rule, verdict, booking, now, prerequisites, accepted, elevatorSt
       { deadline:new Date(deadline).toISOString(), deadlineLocal:localTime.format(deadline) });
   };
   switch (rule.kind) {
+    case 'cutoff':
+      if (verdict === 'other_day') return status('satisfied','This deadline applies on another day.');
+      if (verdict === 'unknown') return unknown('Confirm the unloading end time.');
+      if (verdict === 'late') {
+        const minutes = time => Number(time.slice(0,2)) * 60 + Number(time.slice(3));
+        const overrun = minutes(booking.unloadEnd) - minutes(rule.end);
+        return status('conflict', `Unloading must finish by ${rule.end}. The booking ends at ${booking.unloadEnd}, ${overrun} minutes late.`);
+      }
+      return status('satisfied','Unloading finishes by the property deadline.');
     case 'access':
       if (verdict === 'conflict') return status('conflict','The new apartment is unavailable on this date.');
       if (verdict === 'ok') return status('satisfied','The new apartment is accessible.');

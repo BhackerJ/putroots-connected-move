@@ -4,6 +4,7 @@ import { copyFileSync, existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createMoveGraph } from './move-graph.mjs';
+import { confirmedCloudFacts } from './cloud-explanation.mjs';
 import { runAgent } from './agent.mjs';
 import { MOVE_RULES_CSS } from '../../src/move-rules-card.mjs';
 
@@ -19,7 +20,11 @@ const routes = {
   '/api/compare': input => graph.compareOptions(input),
   '/api/explain': input => graph.explain(input),
   '/api/source/prepare': ({ text }) => graph.applySource({ text }),
-  '/api/source/commit': ({ candidateId }) => graph.applySource({ candidateId }),
+  '/api/source/commit': ({ candidateId, reviewed, explain }) => {
+    const result = graph.applySource(reviewed ? { reviewed } : { candidateId });
+    if (reviewed && explain === true && result.after) result.cloud = confirmedCloudFacts(reviewed.statement, graph);
+    return result;
+  },
   '/api/reset': () => graph.reset(),
   '/api/graph': () => graph.graphView(),
   '/api/agent': input => runAgent(graph, input),
@@ -27,7 +32,10 @@ const routes = {
 const assets = {
   '/logo.svg': ['../../assets/logo.svg', 'image/svg+xml'],
   '/standalone': ['demo.html', 'text/html'],
+  '/local-mail.js': ['node_modules/.cache/connected-move/local-mail.js','text/javascript'],
+  '/source-rules.mjs': ['source-rules.mjs','text/javascript'],
   '/demo.css': ['demo.css', 'text/css'],
+  '/move-api.mjs': ['move-api.mjs','text/javascript'],
   '/demo.mjs': ['demo.mjs', 'text/javascript'],
   '/move-fixtures.mjs': ['move-fixtures.mjs', 'text/javascript'],
   '/move-rules-card.mjs': ['../../src/move-rules-card.mjs', 'text/javascript'],
@@ -77,6 +85,12 @@ const server = createServer(async (request, response) => {
       if (Object.hasOwn(assets, path)) {
         const [file, type] = assets[path];
         return reply(200, await readFile(new URL(file, import.meta.url)), type);
+      }
+      if (path === '/api/firebase-config') {
+        const { FIREBASE_PROJECT_ID:projectId, FIREBASE_APP_ID:appId, FIREBASE_WEB_API_KEY:apiKey } = process.env;
+        if (!projectId || !appId || !apiKey) return reply(503, { error:'Firebase Web app configuration is missing.' });
+        return reply(200, { projectId, appId, apiKey, siteKey:process.env.FIREBASE_RECAPTCHA_SITE_KEY,
+          debugAppCheck:process.env.FIREBASE_APP_CHECK_DEBUG === '1' });
       }
       if (path === '/api/scenarios') return reply(200, graph.compareOptions());
     }

@@ -1,5 +1,9 @@
+import { post } from '/move-api.mjs';
 import { renderMoveRulesCard } from '/move-rules-card.mjs';
 import { EXCEPTION_EMAIL } from '/move-fixtures.mjs';
+
+import { extractMail, explainWithGemini } from '/local-mail.js';
+import { readUpdate } from '/source-rules.mjs';
 
 const panel = document.getElementById('connected-move') || document;
 const element = (id) => panel.querySelector('#' + id);
@@ -22,17 +26,6 @@ const dateLabel = date => new Intl.DateTimeFormat('en-US', {
   weekday: 'long', month: 'short', day: 'numeric', timeZone: 'UTC',
 }).format(new Date(date + 'T00:00:00Z'));
 const sourceNames = { S02: 'Mover booking', S03: 'Building move-in policy', S05: 'Key-return agreement', S10: 'Cleaning appointment', S11: 'Utility notice' };
-
-async function post(path, input = {}) {
-  const response = await fetch('/api/' + path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  });
-  const body = await response.json();
-  if (!response.ok) throw new Error(body.error || 'Request failed.');
-  return body;
-}
 
 function addText(parent, tag, text) {
   const node = document.createElement(tag);
@@ -194,7 +187,7 @@ function drawGraph() {
     text.textContent = node.label;
   }
   const caption = element('graph-caption');
-  caption.textContent = `Relate single-file store · ${graphView.nodes.length} nodes · ${graphView.edges.length} relationships · path query MATCH p=(:Move)-[:HAS_TASK]->(:Task)<-[:ANCHORED_TO]-(r:Requirement)-[:DEPENDS_ON*0..4]->()`;
+  caption.textContent = `Relate graph · ${graphView.nodes.length} nodes · ${graphView.edges.length} relationships · path query MATCH p=(:Move)-[:HAS_TASK]->(:Task)<-[:ANCHORED_TO]-(r:Requirement)-[:DEPENDS_ON*0..4]->()`;
 }
 
 async function refreshGraph() {
@@ -334,7 +327,7 @@ function clearProposal() {
 function showProposal(candidate) {
   proposal = candidate;
   if (proposal.status === 'prepared') {
-    element('proposal').textContent = proposal.quote;
+    element('proposal').textContent = proposal.reviewed ? proposal.reviewed.statement + ' — “' + proposal.quote + '”' : proposal.quote;
     element('confirm').hidden = false;
   } else {
     element('proposal').textContent = proposal.detail || 'This reply is already in the move record.';
@@ -349,28 +342,57 @@ element('sample-reply').onclick = () => {
 element('source').onsubmit = perform(async () => {
   clearProposal();
   const text = element('reply').value;
-  const candidate = await post('source/prepare', { text });
+  const baseVersion = graphView.nodes.find(node => node.type === 'Move').props.version;
+  const exact = text.trim();
+  const extracted = readUpdate(exact) ? { statement:exact, quote:exact }
+    : await extractMail(text);
+  const candidate = extracted ? { status:'prepared', quote:extracted.quote, reviewed:{ ...extracted, baseVersion } }
+    : { detail:'No single supported rule with an exact source quote could be verified. Review the wording.' };
   if (element('reply').value === text) showProposal(candidate);
 });
 element('confirm').onclick = perform(async () => {
   if (!proposal) return;
-  const response = await post('source/commit', { candidateId: proposal.candidateId });
+  const response = await post('source/commit', proposal.reviewed ? { reviewed:proposal.reviewed, explain:true } : { candidateId:proposal.candidateId });
   clearProposal();
   const known = new Set(graphView.nodes.map(node => node.key));
   await refreshGraph();
   if (response.after) {
     showReport(response.after, true);
     highlight({ checks:response.after.checks, bookings:[response.after.booking.id], date:response.after.booking.date, fresh:graphView.nodes.filter(node => !known.has(node.key)).map(node => node.key) });
-    const changed = response.changes.filter(check => check.status === 'satisfied' &&
-      response.before.checks.some(old => old.id === check.id && old.status === 'conflict'));
     const elevator = response.after.checks.find(check => check.id === 'elevator');
     const summary = document.createElement('article');
-    for (const check of changed) {
-      addText(summary, 'p', 'Before · ' + check.label + ' conflicted').dataset.status = 'conflict';
-      addText(summary, 'p', 'After · ' + check.label + ' approved').dataset.status = 'satisfied';
+    const facts = response.cloud?.facts;
+    const liftConfirmed = facts?.rule.type === 'freight_elevator' && facts.rule.reservation === 'confirmed';
+    if (liftConfirmed) {
+      const slot = facts.booking;
+      addText(summary, 'p', `Property confirmed the freight elevator · ${dateLabel(slot.date)}, ${slot.unloadingStarts}–${slot.unloadingEnds}`).dataset.status = 'satisfied';
+      for (const check of response.after.checks.filter(c => c.status === 'conflict' && c.id.startsWith('cutoff-'))) {
+        addText(summary, 'p', 'Current plan conflict (Relate) · ' + check.detail).dataset.status = 'conflict';
+      }
+    }
+    for (const check of response.changes) {
+      if (liftConfirmed && check.id === 'elevator') continue;
+      const before = response.before.checks.find(old => old.id === check.id);
+      if (before) addText(summary, 'p', 'Before · ' + check.label + ' · ' + labels[before.status]).dataset.status = before.status;
+      addText(summary, 'p', 'After · ' + check.label + ' · ' + labels[check.status]).dataset.status = check.status;
     }
     if (elevator?.status === 'pending') addText(summary, 'p', 'Still needed · Freight elevator reservation').dataset.status = 'pending';
     if (summary.childNodes.length) results.prepend(summary);
+    if (response.cloud) {
+      const explanation = document.createElement(liftConfirmed ? 'details' : 'section');
+      addText(explanation, liftConfirmed ? 'summary' : 'h3', 'Gemini explanation of this property decision');
+      summary.append(explanation);
+      try {
+        addText(explanation, 'p', await explainWithGemini(response.cloud.facts));
+      } catch (error) {
+        addText(explanation, 'p', 'Saved locally. Gemini explanation unavailable. ' + error.message);
+      }
+      const disclosure = document.createElement('details');
+      addText(disclosure, 'summary', 'Fields prepared for Gemini');
+      addText(disclosure, 'pre', JSON.stringify(response.cloud.facts, null, 2));
+      summary.append(disclosure);
+    }
+    if (!summary.isConnected && summary.childNodes.length) results.prepend(summary);
     onConfirmed(summary, response);
     element('source').closest('details').open = false;
     (panel === document ? window : panel).scrollTo(0, 0);

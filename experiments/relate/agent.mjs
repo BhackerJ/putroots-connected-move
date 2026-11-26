@@ -45,7 +45,10 @@ export async function runAgent(graph, { question, history = [], signal } = {}) {
       const { name, input } = JSON.parse(body);
       const result = await callTool(graph, name, input);
       trace.push({ name, input, result });
-      response.end(JSON.stringify(result));
+      // Reviewed property excerpts stay in the local UI even when an agent
+      // later asks for a graph report containing their evidence records.
+      response.end(JSON.stringify(result, (key, value) =>
+        value?.quote && /^[a-f0-9]{64}$/.test(value.id) ? { id:value.id } : value));
     } catch (error) {
       response.writeHead(400).end(JSON.stringify({ error: error.message }));
     }
