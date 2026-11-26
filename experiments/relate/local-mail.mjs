@@ -44,7 +44,7 @@ export async function explainWithGemini(facts) {
     const appCheck = initializeAppCheck(app, { provider:enterpriseSiteKey ? new ReCaptchaEnterpriseProvider(enterpriseSiteKey) : new ReCaptchaV3Provider(siteKey || 'localhost-debug') });
     const model = getGenerativeModel(getAI(app), { mode:InferenceMode.ONLY_IN_CLOUD,
       inCloudParams:{ model:'gemini-3.5-flash-lite',
-        systemInstruction:'Explain only the supplied rule and booking in two short sentences. Identify the conflict or confirmation and one practical next action. All times are local. A freight elevator confirmation covers the elevator alone. Never advise proceeding with the move based on it. Do not invent policies or availability.' } });
+        systemInstruction:'Use two short sentences. For an unloading deadline, compare the finish times and suggest adjusting the booking to meet the deadline. For a confirmed freight elevator, state the confirmed slot, then suggest checking the existing unloading deadline separately. For a cancelled elevator, state the cancellation, then suggest contacting management for a new slot. Use only the selected case. All times are local. Do not introduce any approval, permission, permit or requirement.' } });
     cloud = { appCheck, model };
   }
   await getToken(cloud.appCheck);
