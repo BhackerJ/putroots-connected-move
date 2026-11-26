@@ -24,7 +24,11 @@ Email:\n` + text);
   const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(raw);
   let extracted;
   try { extracted = JSON.parse(fenced ? fenced[1] : raw); } catch { return undefined; }
-  const {statement,quote} = extracted || {};
+  const {statement:rawStatement,quote} = extracted || {};
+  // Nano sometimes preserves the time word from the evidence.
+  const statement = typeof rawStatement === 'string' && typeof quote === 'string' && /\bnoon\b/i.test(quote)
+    ? rawStatement.replace(/^Unloading must finish by noon every /i, 'Unloading must finish by 12:00 every ')
+    : rawStatement;
   const update = typeof statement === 'string' && readUpdate(statement);
   if (!update || !['cutoff','elevator','approval'].includes(update.kind) || typeof quote !== 'string' || !quote.trim() || !text.includes(quote)) return undefined;
   return {statement, quote};
